@@ -1,0 +1,11 @@
+[context]
+api_url = "https://api.treqs.ai"
+owner_id = "e39ab1b0-7f8a-4473-b2eb-027d6feb6e9d"
+owner_type = "organization"
+owner_username = "reproducible-ai"
+owner_display_name = "Reproducible AI"
+project_id = "687df400-505c-4037-9469-ef25e010b1c4"
+project_slug = "dcgan"
+project_name = "DCGAN"
+current_username = "christreqs"
+saved_at = "2026-08-05T21:38:03.940461Z"

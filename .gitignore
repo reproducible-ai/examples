@@ -23,3 +23,15 @@ docs/venv
 # development
 .vscode
 **/.DS_Store
+
+# roar state — the generated setup stage runs `roar init`, which creates
+# .roar/. Without this rule the worktree goes dirty and the FIRST PAID
+# `roar run` refuses to execute ("Run blocked: untracked files").
+.roar/
+# --- reproduction outputs (scaffold_row.py: mnist rule) ---
+# file-pattern ignore + tracked .gitkeep so each dir survives a clean
+# checkout and roar keeps the outputs in lineage. NEVER dir-ignore.
+cifar10-data/*
+!cifar10-data/.gitkeep
+out/*
+!out/.gitkeep
