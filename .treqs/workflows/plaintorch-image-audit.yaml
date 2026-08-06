@@ -1,0 +1,43 @@
+name: plaintorch image audit
+
+# Throwaway pre-flight (NOT a campaign row). Proves the compute target's AMI
+# records a PORTABLE freeze before we spend on a capture: no PyTorch-index
+# local-version tags (`+cuNNN`, absent from PyPI) and no duplicate PEP-503
+# names at different versions. Run with --lineage private; not published.
+
+setup:
+  command: |
+    export PATH=/opt/pytorch/bin:$PATH
+    echo "=== python ==="
+    which python; python -V
+    echo "=== roar ==="
+    roar --version
+    echo "=== gpu ==="
+    nvidia-smi || true
+  trace: off
+
+audit:
+  command: |
+    export PATH=/opt/pytorch/bin:$PATH
+    echo "=== TORCH FAMILY (expect plain 2.7.0 / 0.22.0 / 2.7.0) ==="
+    python -c "import torch, torchvision, torchaudio; print('torch', torch.__version__); print('torchvision', torchvision.__version__); print('torchaudio', torchaudio.__version__); print('cuda_available', torch.cuda.is_available())"
+    echo "=== LOCAL-VERSION TAGGED PINS (expect NONE) ==="
+    if python -m pip list --format=freeze | grep '+'; then echo "VERDICT: TAGGED_PINS_FOUND"; else echo "VERDICT: NO_TAGGED_PINS"; fi
+    echo "=== PIN COUNT ==="
+    python -m pip list --format=freeze | wc -l
+    python - <<'PY'
+    import re, subprocess, collections
+    out = subprocess.run(["python", "-m", "pip", "list", "--format=freeze"],
+                         capture_output=True, text=True).stdout
+    names = collections.defaultdict(set)
+    for line in out.splitlines():
+        if "==" in line:
+            n, v = line.split("==", 1)
+            names[re.sub(r"[-_.]+", "-", n).lower()].add(v)
+    dupes = {k: sorted(v) for k, v in names.items() if len(v) > 1}
+    print("=== PEP503 DUPLICATE NAMES (expect none) ===")
+    print("VERDICT: PEP503_DUPES", dupes if dupes else "none")
+    PY
+    echo "=== FULL FREEZE ==="
+    python -m pip list --format=freeze
+  trace: off
