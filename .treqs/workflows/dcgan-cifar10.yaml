@@ -12,18 +12,16 @@ setup:
     export PATH=/opt/pytorch/bin:$PATH
     python -m pip install --quiet requests || true
     roar --version
-    roar init || true
-    # Campaign rule: PIN the tracer. `auto` resolves per-host (ebpf vs preload),
-    # which would make the tracer a hidden variable across rebuilds. NEVER ptrace.
     roar tracer use preload
     roar tracer
+    roar init || true
   trace: off
 
 prepare:
   command: |
     export PATH=/opt/pytorch/bin:$PATH
     export TRACKIO_SPACE_ID=reproducible-ai/experiments PYTHONUNBUFFERED=1
-    roar run -n prepare --wandb-to-trackio -- python -c "import torch, torchvision, torchvision.datasets as d; print('torch', torch.__version__, 'tv', torchvision.__version__); d.CIFAR10(root='cifar10-data', download=True)"
+    roar run -n prepare --wandb-to-trackio -- python -c "import torch, torchvision, torchvision.datasets as d; print(\"torch\", torch.__version__, \"torchvision\", torchvision.__version__); d.CIFAR10(root=\"cifar10-data\", download=True)"
   trace: off
 
 train:
@@ -42,5 +40,5 @@ label:
 publish:
   command: |
     export PATH=/opt/pytorch/bin:$PATH
-    roar put out/netG_epoch_0.pth hf://reproducible-ai/dcgan --public --yes --no-tag -m "TRUNCATED pipeline-viability run: DCGAN on CIFAR-10, --niter 1 (one epoch, ~782 iters). NOT converged and not a quality result; published to demonstrate end-to-end provenance capture."
+    roar put out/netG_epoch_0.pth hf://reproducible-ai/dcgan --public --yes --no-tag -m "TRUNCATED pipeline-viability run: DCGAN on CIFAR-10, --niter 1 (one epoch, ~782 iters). NOT converged and not a quality result; published to demonstrate end-to-end provenance capture. Re-capture of the row on a plain-PyPI torch image so the recorded pip freeze is portable (no +cuNNN local-version pins)."
   trace: off
