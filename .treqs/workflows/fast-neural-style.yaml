@@ -238,31 +238,61 @@ label:
 
 publish:
   command: |
-    # TWO artifacts are published in ONE `roar put`, deliberately.
+    # The two artifacts this row produces -- the deterministically-named checkpoint
+    # and the stylised image -- are uploaded to the public Hugging Face repo here.
     #
-    # `roar put <artifact>` registers the artifact's ANCESTOR DAG, not the whole
-    # session. The stylize step's output is consumed by nothing, so publishing the
-    # checkpoint alone leaves stylize out of the graph entirely: the previous
-    # capture of this row published steps numbered 1, 2, 4 -- fetch_dataset, train,
-    # put -- with stylize absent despite having run and written its image. That is
-    # correct behaviour for `put`, not a bug, but the consequence is a published
-    # record whose only evaluation step is missing, and a `roar reproduce ... --run`
-    # from it would rebuild the model and never render anything.
+    # The upload is done with `huggingface_hub` rather than with the provenance
+    # CLI's own publish subcommand, and that is a deliberate choice with a concrete
+    # reason. A job record is globally unique by job UID and belongs to exactly one
+    # lineage session (glaas `Job.jobUid @unique`, single `sessionHash`). An in-pod
+    # publish submits this run's traced jobs as an ANONYMOUS session before the
+    # control plane exports the same jobs as the ATTRIBUTED one; the first
+    # submission owns the job records, and the attributed session -- the one that
+    # carries the organisation, the project and the training-request backlink --
+    # is then created with zero jobs. Measured on this row, on one host, on one
+    # afternoon: the identical workflow published 3 attributed jobs when the in-pod
+    # publish did not run, and 0 attributed jobs with 4 anonymous ones when it did.
     #
-    # Naming the stylised image as a second source makes it an ancestor of the
-    # publish, which pulls stylize into the same graph. The alternatives were a
-    # session-scoped registration (a second submission alongside the put's own, so
-    # two hashes for one run) and `roar put --bind`; publishing the image is the one
-    # that also makes the row's qualitative result downloadable, which is the point
-    # of having produced it.
+    # So: one submission per run, made by the control plane, and the upload done by
+    # a plain HTTP client. The cost is that the AI-BOM's `downloadLocation` field is
+    # not auto-populated (it is derived from the artifact's recorded source_url,
+    # which only the CLI's publish path writes) -- 2.5 points of BOM score, in
+    # exchange for a record that has its jobs in it. The artifact URLs are recorded
+    # in the row notes instead.
     #
-    # ⚠ DO NOT write the two words r-o-a-r space r-e-g-i-s-t-e-r anywhere in a stage
-    # command, INCLUDING IN A COMMENT. The workflow compiler filters whole stages on
-    # /\broar\s+register\b/ against the raw command string, comments and all, and it
-    # drops the match without a warning. An earlier version of this comment named
-    # that subcommand while explaining why it was not used, and the publish stage was
-    # deleted from the compiled workflow: the run executed five tasks instead of six,
-    # uploaded nothing, and reported "Run completed successfully".
+    # The interpreter used is the provenance CLI's own tool venv, which already has
+    # huggingface_hub in it. Nothing is installed into the workload interpreter, so
+    # the traced steps' recorded package set is unaffected by this stage.
     export PATH=/opt/pytorch/bin:$PATH
-    roar put fast_neural_style/out-ckpt/ckpt_epoch_0_batch_id_2368.pth fast_neural_style/out-stylized/amber-mosaic.jpg hf://reproducible-ai/fast-neural-style --public --yes --no-tag -m "fast-neural-style TransformerNet trained on Imagenette-320 (9,469 images) against the mosaic style image: 1 of upstream's default 2 epochs, batch size 4, image size 256, plus the stylised amber.jpg it renders. TRUNCATED pipeline-viability run, NOT converged and not a quality result."
+    HFPY="$(dirname "$(readlink -f "$(command -v roar)")")/python"
+    # Fallback: if that venv layout ever changes, install the client into the
+    # workload interpreter instead. Safe here and only here -- this stage runs after
+    # every traced step has finished, so no recorded freeze can be affected by it.
+    "$HFPY" -c "import huggingface_hub" 2>/dev/null || {
+      HFPY="$(command -v python)"
+      "$HFPY" -m pip install --quiet huggingface_hub
+    }
+    "$HFPY" -c "import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__)"
+    "$HFPY" - <<'PY'
+    import hashlib, os, sys
+    from huggingface_hub import HfApi
+    REPO = "reproducible-ai/fast-neural-style"
+    FILES = [
+        ("fast_neural_style/out-ckpt/ckpt_epoch_0_batch_id_2368.pth", "ckpt_epoch_0_batch_id_2368.pth"),
+        ("fast_neural_style/out-stylized/amber-mosaic.jpg", "amber-mosaic.jpg"),
+    ]
+    api = HfApi(token=os.environ["HF_TOKEN"])
+    api.create_repo(REPO, repo_type="model", exist_ok=True)
+    for local, remote in FILES:
+        h = hashlib.sha256(open(local, "rb").read()).hexdigest()
+        print(f"uploading {local} -> hf://{REPO}/{remote}  {os.path.getsize(local)} bytes  sha256={h}")
+        api.upload_file(path_or_fileobj=local, path_in_repo=remote, repo_id=REPO, repo_type="model",
+                        commit_message="fast-neural-style TransformerNet trained on Imagenette-320 "
+                                       "(9,469 images) against the mosaic style image: 1 of upstream's "
+                                       "default 2 epochs, batch size 4, image size 256, plus the stylised "
+                                       "amber.jpg it renders. TRUNCATED pipeline-viability run, NOT "
+                                       "converged and not a quality result.")
+    for _, remote in FILES:
+        print("published:", f"https://huggingface.co/{REPO}/resolve/main/{remote}")
+    PY
   trace: off
