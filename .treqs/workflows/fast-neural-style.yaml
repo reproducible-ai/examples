@@ -64,10 +64,6 @@ setup:
     export PATH=/opt/pytorch/bin:$PATH
     python -c "import sys; print('python', sys.version)"
     python -m pip install --quiet requests || true
-    # Belt and braces against P0-12: a stray *.egg-info makes importlib.metadata
-    # report a self-install that pip already removed. Nothing in this row installs
-    # itself -- fast_neural_style is plain scripts, not a package -- so this should
-    # find nothing. Harmless when it does not.
     rm -rf *.egg-info fast_neural_style/*.egg-info
     sudo rm -rf /usr/local/lib/python3.10/dist-packages/roar_cli-*.dist-info \
                 /usr/local/lib/python3.10/dist-packages/roar \
