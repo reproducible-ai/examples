@@ -93,21 +93,21 @@ setup:
     # `--index-strategy unsafe-best-match` is REQUIRED, not cosmetic: uv gives an
     # --extra-index-url first-match priority over the --index-url, so with the
     # default strategy it finds roar-cli on the main index, never sees this
-    # version, and dies "no version of roar-cli==0.4.4rc5".
+    # version, and dies "no version of roar-cli==0.4.4rc6".
     uv tool install --python "$RECORDED_PY" --force --with huggingface-hub \
         --index-strategy unsafe-best-match \
         --index-url https://test.pypi.org/simple/ \
         --extra-index-url https://pypi.org/simple/ \
-        roar-cli==0.4.4rc5
+        roar-cli==0.4.4rc6
     sudo ln -sf "$(uv tool dir --bin 2>/dev/null || echo /root/.local/bin)/roar" /usr/local/bin/roar
-    test "$(roar --version | grep -o '[0-9][^ ]*$')" = "0.4.4rc5" || \
+    test "$(roar --version | grep -o '[0-9][^ ]*$')" = "0.4.4rc6" || \
       { echo "WRONG ROAR: $(roar --version)"; exit 1; }
     # A version string is not an identity -- distinct builds have shipped under one
     # version string on this project before. Pin the artefact by wheel sha256 and
     # prove the installed files came from that wheel.
     ROAR_WHEEL_SCRATCH=/var/tmp python fast_neural_style/repro/verify_roar_wheel.py \
-      --version 0.4.4rc5 \
-      --sha256 ed35ed6bda3b5698ab65a887e7390c2ac073123f6d94bfa27b8282285352219c \
+      --version 0.4.4rc6 \
+      --sha256 c7115b748886259b6a089e547404376acf84c3b81b4cbc8dc5610490ebea7199 \
       --exe "$(command -v roar)"
     test "$(ls $(dirname $(readlink -f $(command -v roar)))/../lib/python*/site-packages/roar/bin | wc -l)" -ge 6 || \
       { echo "NO TRACER BINARIES"; exit 1; }
@@ -229,10 +229,32 @@ label:
   command: |
     export PATH=/opt/pytorch/bin:$PATH
     roar label set artifact fast_neural_style/out-ckpt/ckpt_epoch_0_batch_id_2368.pth model.name=fast-neural-style model.version=1 license.id=BSD-3-Clause license.name='BSD 3-Clause License' description='fast-neural-style TransformerNet (Johnson et al. perceptual losses + instance normalisation) trained against the mosaic style image with a VGG-16 perceptual loss. TRUNCATED pipeline-viability run: 1 of upstream'"'"'s default 2 epochs, over Imagenette-320 (9,469 images) instead of the README'"'"'s COCO-2014-train (82,783). NOT converged.' documentation.url=https://github.com/pytorch/examples/blob/main/fast_neural_style/README.md
+    # The stylised image is labelled too, because it is published too (see the
+    # publish stage). An artifact that reaches the record unlabelled is a hole in
+    # the BOM, and this one is cheap to fill: same licence, same provenance, and a
+    # description that says what it actually is rather than borrowing the model's.
+    roar label set artifact fast_neural_style/out-stylized/amber-mosaic.jpg model.name=fast-neural-style model.version=1 license.id=BSD-3-Clause license.name='BSD 3-Clause License' description='Output of the stylize step: upstream'"'"'s bundled content image images/content-images/amber.jpg rendered through the TransformerNet checkpoint this run trained. This is the ONLY evaluation fast_neural_style ships -- the example computes no held-out metric -- so this image is the row'"'"'s qualitative result. From a 1-epoch truncated run; NOT converged.' documentation.url=https://github.com/pytorch/examples/blob/main/fast_neural_style/README.md
   trace: off
 
 publish:
   command: |
+    # TWO artifacts are published in ONE `roar put`, deliberately.
+    #
+    # `roar put <artifact>` registers the artifact's ANCESTOR DAG, not the whole
+    # session. The stylize step's output is consumed by nothing, so publishing the
+    # checkpoint alone leaves stylize out of the graph entirely: the previous
+    # capture of this row published steps numbered 1, 2, 4 -- fetch_dataset, train,
+    # put -- with stylize absent despite having run and written its image. That is
+    # correct behaviour for `put`, not a bug, but the consequence is a published
+    # record whose only evaluation step is missing, and a `roar reproduce ... --run`
+    # from it would rebuild the model and never render anything.
+    #
+    # Naming the stylised image as a second source makes it an ancestor of the
+    # publish, which pulls stylize into the same graph. The alternatives were
+    # `roar register` (session-scoped, but a second registration alongside the put's
+    # own, so two hashes for one run) and `roar put --bind`; publishing the image is
+    # the one that also makes the row's qualitative result downloadable, which is
+    # the point of having produced it.
     export PATH=/opt/pytorch/bin:$PATH
-    roar put fast_neural_style/out-ckpt/ckpt_epoch_0_batch_id_2368.pth hf://reproducible-ai/fast-neural-style --public --yes --no-tag -m "fast-neural-style TransformerNet trained on Imagenette-320 (9,469 images) against the mosaic style image: 1 of upstream's default 2 epochs, batch size 4, image size 256. TRUNCATED pipeline-viability run, NOT converged and not a quality result."
+    roar put fast_neural_style/out-ckpt/ckpt_epoch_0_batch_id_2368.pth fast_neural_style/out-stylized/amber-mosaic.jpg hf://reproducible-ai/fast-neural-style --public --yes --no-tag -m "fast-neural-style TransformerNet trained on Imagenette-320 (9,469 images) against the mosaic style image: 1 of upstream's default 2 epochs, batch size 4, image size 256, plus the stylised amber.jpg it renders. TRUNCATED pipeline-viability run, NOT converged and not a quality result."
   trace: off
