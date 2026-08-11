@@ -152,6 +152,28 @@ setup:
     rm -rf /var/tmp/torchhome-probe
     TORCH_HOME=/var/tmp/torchhome-probe python -c "import time, torchvision, os; t0=time.time(); torchvision.models.vgg16(weights='VGG16_Weights.IMAGENET1K_V1'); dt=time.time()-t0; tot=sum(os.path.getsize(os.path.join(d,f)) for d,_,fs in os.walk('/var/tmp/torchhome-probe') for f in fs); print('VGG16_IMAGENET_WEIGHTS_DOWNLOAD_SECONDS %.2f BYTES %d' % (dt, tot))" || true
     rm -rf /var/tmp/torchhome-probe
+    # --- make the recorded git remote a CLONABLE URL --------------------------
+    # The first capture of this row recorded `remote_url: "origin"` -- the remote's
+    # NAME, not its URL -- on every job and on the session (`gitRepo: "origin"`).
+    # A record whose repository field is the string "origin" cannot be rebuilt by
+    # anyone: `git clone origin` is not a thing, and the anonymous URL check chokes
+    # on it outright ("unknown url type: 'origin'"). The run's own summary flagged
+    # it at the time -- "commit reachable on a remote [x] -> no shareable git
+    # remote" -- and it was still published.
+    #
+    # This is not cosmetic and it is not a fudge: the checkout on this host really
+    # IS reproducible-ai/examples at this commit, pushed and public. Setting the
+    # remote to its true URL makes the record MORE accurate, not less. It is done
+    # in the untraced setup stage, so nothing about the workload changes.
+    git remote -v
+    git remote set-url origin https://github.com/reproducible-ai/examples.git 2>/dev/null \
+      || git remote add origin https://github.com/reproducible-ai/examples.git
+    git remote -v
+    # ...and prove the recorded commit is actually reachable there, so the record
+    # cannot claim a remote that does not carry this code.
+    git ls-remote origin | grep -q "$(git rev-parse HEAD)" \
+      && echo "commit $(git rev-parse HEAD) IS reachable on origin" \
+      || { echo "commit $(git rev-parse HEAD) NOT reachable on origin"; exit 1; }
     git status --porcelain
     roar init || true
   trace: off
